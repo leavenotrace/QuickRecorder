@@ -195,7 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         )
         
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
+           //if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
         }
         
         SCContext.updateAvailableContent{
