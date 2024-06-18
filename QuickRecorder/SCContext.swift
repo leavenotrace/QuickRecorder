@@ -289,6 +289,7 @@ class SCContext {
         autoStop = 0
         recordCam = ""
         recordDevice = ""
+        isMagnifierEnabled = false
         mousePointer.orderOut(nil)
         screenMagnifier.orderOut(nil)
         AppDelegate.shared.stopGlobalMouseMonitor()
@@ -422,6 +423,11 @@ class SCContext {
     
     static func getCameras() -> [AVCaptureDevice] {
         let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .externalUnknown], mediaType: .video, position: .unspecified)
+        return discoverySession.devices
+    }
+    
+    static func getMicrophone() -> [AVCaptureDevice] {
+        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInMicrophone, .externalUnknown], mediaType: .audio, position: .unspecified)
         return discoverySession.devices
     }
     

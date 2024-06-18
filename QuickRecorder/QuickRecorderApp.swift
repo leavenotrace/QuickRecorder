@@ -33,6 +33,7 @@ let screenMagnifier = NSWindow(contentRect: NSRect(x: -402, y: -402, width: 402,
 let camWindow = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, height: 200), styleMask: [.fullSizeContentView, .resizable], backing: .buffered, defer: false)
 let deviceWindow = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 200, height: 200), styleMask: [.fullSizeContentView, .resizable], backing: .buffered, defer: false)
 let controlPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
+let countdownPanel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 120), styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
 var updaterController: SPUStandardUpdaterController!
 
 @main
@@ -71,7 +72,7 @@ struct QuickRecorderApp: App {
         for w in NSApplication.shared.windows.filter({ $0.title == "QuickRecorder".local }) {
             w.level = .floating
             w.styleMask = [.fullSizeContentView]
-            w.hasShadow = false
+            //w.hasShadow = false
             w.isRestorable = false
             w.isMovableByWindowBackground = true
             w.standardWindowButton(.closeButton)?.isHidden = true
@@ -102,6 +103,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     var filter: SCContentFilter?
     var isCameraReady = false
     var isPresenterON = false
+    var isResizing = false
     var presenterType = "OFF"
     //var lastTime = CMTime(value: 0, timescale: 600)
     
@@ -162,6 +164,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     }
     
     func applicationWillFinishLaunching(_ notification: Notification) {
+        let process = NSWorkspace.shared.runningApplications.filter({ $0.bundleIdentifier == "com.lihaoyun6.QuickRecorder" })
+        if process.count > 1 {
+            DispatchQueue.main.async {
+                let button = self.createAlert(title: "QuickRecorder is Running".local, message: "Please do not run multiple instances!".local, button1: "Quit".local).runModal()
+                if button == .alertFirstButtonReturn { NSApp.terminate(self) }
+            }
+        }
+        
         lazy var userDesktop = (NSSearchPathForDirectoriesInDomains(.desktopDirectory, .userDomainMask, true) as [String]).first!
         //let saveDirectory = (UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location") ?? userDesktop) as NSString
         
@@ -177,6 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "hideDesktopFiles": false,
                 "includeMenuBar": true,
                 "videoQuality": 1.0,
+                "countdown": 0,
                 "videoFormat": VideoFormat.mp4.rawValue,
                 "pixelFormat": PixFormat.delault.rawValue,
                 "colorSpace": ColSpace.srgb.rawValue,
@@ -190,9 +201,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
                 "trimAfterRecord": false,
                 "showOnDock": true,
                 "showMenubar": false,
-                "enableAEC": false
+                "enableAEC": false,
+                "recordHDR": false,
+                "savedArea": [String: [String: CGFloat]]()
             ]
         )
+        
+        if ud.integer(forKey: "highRes") == 0 { ud.setValue(2, forKey: "highRes") }
+        if !ud.bool(forKey: "showOnDock") && !ud.bool(forKey: "showMenubar") { ud.setValue(true, forKey: "showOnDock") }
+        if ud.bool(forKey: "showOnDock") { NSApp.setActivationPolicy(.regular) }
         
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
            //if let error = error { print("Notification authorization denied: \(error.localizedDescription)") }
@@ -214,7 +231,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         if #available(macOS 13, *) { isMacOS12 = false }
         if #available(macOS 14, *) { isMacOS14 = true }
         
-        if !ud.bool(forKey: "showOnDock") { NSApp.setActivationPolicy(.accessory) }
+        //if !ud.bool(forKey: "showOnDock") { NSApp.setActivationPolicy(.accessory) }
         
         var allow : UInt32 = 1
         let dataSize : UInt32 = 4
@@ -247,6 +264,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         camWindow.isMovableByWindowBackground = true
         camWindow.backgroundColor = NSColor.clear
         
+        countdownPanel.title = "Countdown Panel".local
+        countdownPanel.level = .floating
+        countdownPanel.isReleasedWhenClosed = false
+        countdownPanel.isMovableByWindowBackground = false
+        countdownPanel.backgroundColor = NSColor.clear
+        
         deviceWindow.title = "iDevice Overlayer".local
         deviceWindow.level = .floating
         deviceWindow.isReleasedWhenClosed = false
@@ -278,7 +301,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
         KeyboardShortcuts.onKeyDown(for: .startWithArea) {[self] in
             if SCContext.stream != nil { return }
             closeAllWindow()
-            showAreaSelector()
+            showAreaSelector(size: NSSize(width: 600, height: 450))
         }
         KeyboardShortcuts.onKeyDown(for: .startWithWindow) { [self] in
             if SCContext.stream != nil { return }
@@ -399,6 +422,12 @@ extension NSImage {
 
         result.unlockFocus()
         return result
+    }
+}
+
+class NNSWindow: NSWindow {
+    override var canBecomeKey: Bool {
+        return true
     }
 }
 

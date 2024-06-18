@@ -31,11 +31,11 @@
 "Refresh" = "刷新列表";
 "Start" = "开始录制";
 "Resolution" = "清晰度";
-"Frame rate" = "帧速率";
+"Frame Rate" = "帧速率";
 "Auto" = "自动";
 "High (auto)" = "高 (自动)";
-"Normal (1x)" = "中 (1x)";
-"Low (0.5x)" = "低 (0.5x)";
+"Normal (1x)" = "普通 (1x)";
+//"Low (0.5x)" = "低 (0.5x)";
 "Quality" = "输出质量";
 "Format" = "输出格式";
 "Encoder" = "编码方式";
@@ -59,6 +59,8 @@
 "White" = "纯白色";
 "Orange" = "系统橙色";
 "Custom" = "用户预设";
+"Area Size:" = "选区尺寸:";
+"Output Size:" = "输出尺寸:";
 "Audio Settings" = "音频设置";
 "Video Settings" = "视频设置";
 "Exclude QuickRecorder itself" = "排除QuickRecorder窗口";
@@ -141,6 +143,13 @@
 "OK" = "好";
 "Failed to save file" = "保存文件时出错";
 "Enable Acoustic Echo Cancellation" = "降低麦克风音频串扰";
+"QuickRecorder is Running" = "QuickRecorder 已在运行";
+"Please do not run multiple instances!" = "请勿重复运行多个 QuickRecorder 实例!";
+"Show Windows with No Title" = "显示无标题窗口";
+"Don't Create Thumbnails" = "不生成缩略图";
+"Record HDR" = "录制HDR格式";
+"Resize" = "编辑选区";
+"Back" = "返回";
 
 // Please don't translate the following warning strings, it will make it difficult for me to read the logs
 "failed to fetch file for size indicator: %@" = "获取文件大小失败: ";

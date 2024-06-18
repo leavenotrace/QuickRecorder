@@ -13,7 +13,7 @@ struct ContentView: View {
     var fromStatusBar = false
     @State private var xmarkGlowing = false
     @State private var infoGlowing = false
-    @State private var showSettings = false
+    //@State private var showSettings = false
     @State private var isPopoverShowing = false
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
@@ -24,7 +24,7 @@ struct ContentView: View {
                     Color.clear
                         .background(.ultraThinMaterial)
                         .environment(\.controlActiveState, .active)
-                        .cornerRadius(13.1)
+                        .cornerRadius(14)
                     //.environment(\.colorScheme, .dark)
                 }
                 HStack {
@@ -52,14 +52,14 @@ struct ContentView: View {
                         appDelegate.closeMainWindow()
                         SCContext.updateAvailableContent{
                             DispatchQueue.main.async {
-                                appDelegate.showAreaSelector()
+                                appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
                                 var currentDisplay = SCContext.getSCDisplayWithMouse()
                                 mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .rightMouseDown, .leftMouseDown, .otherMouseDown]) { event in
                                     let display = SCContext.getSCDisplayWithMouse()
                                     if display != currentDisplay {
                                         currentDisplay = display
-                                        for w in NSApplication.shared.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
-                                        appDelegate.showAreaSelector()
+                                        appDelegate.closeAllWindow()
+                                        appDelegate.showAreaSelector(size: NSSize(width: 600, height: 450))
                                     }
                                 }
                             }
@@ -95,17 +95,15 @@ struct ContentView: View {
                         .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom) { iDevicePopoverView(closePopover: { isPopoverShowing = false })}
                     Divider().frame(height: 70)
                     Button(action: {
-                        if fromStatusBar {
-                            appDelegate.openSettingPanel()
-                        } else {
-                            showSettings = true
-                        }
+                        appDelegate.closeMainWindow()
+                        appDelegate.openSettingPanel()
+                        //if fromStatusBar { appDelegate.openSettingPanel() } else { showSettings = true }
                     }, label: {
                         SelectorView(title: "Preferences".local, symbol: "gearshape")
                             .cornerRadius(8)
                     })
                     .buttonStyle(.plain)
-                    .sheet(isPresented: $showSettings) { SettingsView() }
+                    //.sheet(isPresented: $showSettings) { SettingsView() }
                     Spacer()
                 }.padding([.top, .bottom], 10).padding([.leading, .trailing], 19.5)
             }
@@ -142,10 +140,10 @@ struct ContentView: View {
                 }
             }
         }
-        .overlay(
+        /*.overlay(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .strokeBorder(.secondary.opacity(fromStatusBar ? 0.0 : 0.4), lineWidth: isMacOS14 ? 1.5 : 0.0)
-        )
+        )*/
     }
     
     struct SelectorView: View {
@@ -178,40 +176,97 @@ struct ContentView: View {
     }
 }
 
+struct CountdownView: View {
+    @State var countdownValue: Int = 00
+    @State private var timer: Timer?
+    var atEnd: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color("mypurple").environment(\.colorScheme, .dark)
+            Text("\(countdownValue)")
+                .font(.system(size: 72))
+                .foregroundColor(.white)
+                .offset(y: -10)
+            Button(action: {
+                timer?.invalidate()
+                if let w = NSApp.windows.first(where: { $0.title == "Countdown Panel".local }) { w.close() }
+            }, label: {
+                ZStack {
+                    Color.white.opacity(0.2)
+                    Text("Cancel").foregroundColor(.white)
+                }.frame(width: 120, height: 24)
+            })
+            .buttonStyle(.plain)
+            .padding(.top, 96)
+        }
+        .frame(width: 120, height: 120)
+        .cornerRadius(10)
+        .onAppear{
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+                if countdownValue > 1 {
+                    countdownValue -= 1
+                } else {
+                    timer.invalidate()
+                    if let w = NSApp.windows.first(where: { $0.title == "Countdown Panel".local }) { w.close() }
+                    atEnd()
+                }
+            }
+        }
+    }
+}
+
+
 extension AppDelegate {
     
     func closeMainWindow() { for w in NSApplication.shared.windows.filter({ $0.title == "QuickRecorder".local }) { w.close() } }
     
-    func closeAllWindow(_ title: String = "") { for w in NSApp.windows.filter({ $0.title != "Item-0" && $0.title != "" && $0.title != title }) { w.close() }}
+    func closeAllWindow(except: String = "") { for w in NSApp.windows.filter({ $0.title != "Item-0" && $0.title != "" && $0.title != except }) { w.close() }}
     
-    func showAreaSelector() {
+    func showAreaSelector(size: NSSize, noPanel: Bool = false) {
         guard let scDisplay = SCContext.getSCDisplayWithMouse() else { return }
         guard let screen = scDisplay.nsScreen else { return }
-        let screenshotWindow = ScreenshotWindow(contentRect: screen.frame, styleMask: [], backing: .buffered, defer: false)
+        let screenshotWindow = ScreenshotWindow(contentRect: screen.frame, styleMask: [], backing: .buffered, defer: false, size: size, force: noPanel)
         screenshotWindow.title = "Area Selector".local
-        //screenshotWindow.isReleasedWhenClosed = true
         screenshotWindow.orderFront(self)
         screenshotWindow.orderFrontRegardless()
-        let wX = (screen.frame.width - 700) / 2 + screen.frame.minX
-        let wY = screen.visibleFrame.minY + 80
-        let contentView = NSHostingView(rootView: AreaSelector(screen: scDisplay))
-        contentView.frame = NSRect(x: wX, y: wY, width: 700, height: 80)
-        contentView.focusRingType = .none
-        let areaPanel = NSWindow(contentRect: contentView.frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
-        areaPanel.setFrame(contentView.frame, display: true)
-        areaPanel.level = .screenSaver
-        areaPanel.title = "Start Recording".local
-        areaPanel.standardWindowButton(.closeButton)?.isHidden = true
-        areaPanel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        areaPanel.standardWindowButton(.zoomButton)?.isHidden = true
-        areaPanel.contentView = contentView
-        areaPanel.backgroundColor = .clear
-        areaPanel.titleVisibility = .hidden
-        areaPanel.isReleasedWhenClosed = false
-        areaPanel.titlebarAppearsTransparent = true
-        areaPanel.isMovableByWindowBackground = true
-        //areaPanel.setFrameOrigin(NSPoint(x: wX, y: wY))
-        areaPanel.makeKeyAndOrderFront(self)
+        if !noPanel {
+            let wX = (screen.frame.width - 700) / 2 + screen.frame.minX
+            let wY = screen.visibleFrame.minY + 80
+            let contentView = NSHostingView(rootView: AreaSelector(screen: scDisplay))
+            contentView.frame = NSRect(x: wX, y: wY, width: 780, height: 110)
+            contentView.focusRingType = .none
+            let areaPanel = NSWindow(contentRect: contentView.frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
+            areaPanel.setFrame(contentView.frame, display: true)
+            areaPanel.level = .screenSaver
+            areaPanel.title = "Start Recording".local
+            areaPanel.contentView = contentView
+            areaPanel.backgroundColor = .clear
+            areaPanel.titleVisibility = .hidden
+            areaPanel.isReleasedWhenClosed = false
+            areaPanel.titlebarAppearsTransparent = true
+            areaPanel.isMovableByWindowBackground = true
+            //areaPanel.setFrameOrigin(NSPoint(x: wX, y: wY))
+            areaPanel.orderFront(self)
+        }
+    }
+    
+    func createCountdownPanel(screen: SCDisplay, action: @escaping () -> Void) {
+        guard let screen = screen.nsScreen else { return }
+        let countdown = ud.integer(forKey: "countdown")
+        if countdown == 0 {
+            action()
+        } else {
+            let wX = (screen.frame.width - 120) / 2 + screen.frame.minX
+            let wY = (screen.frame.height - 120) / 2 + screen.frame.minY
+            let frame =  NSRect(x: wX, y: wY, width: 120, height: 120)
+            let contentView = NSHostingView(rootView: CountdownView(countdownValue: countdown, atEnd: action))
+            contentView.frame = frame
+            countdownPanel.contentView = contentView
+            countdownPanel.setFrame(frame, display: true)
+            countdownPanel.makeKeyAndOrderFront(self)
+        }
     }
     
     func createNewWindow(view: some View, title: String, random: Bool = false) {
@@ -250,7 +305,7 @@ extension AppDelegate {
 extension View {
     func needScale() -> some View {
         if #available(macOS 13, *) {
-            return self.scaleEffect(0.79).padding(.leading, -4)
+            return self.scaleEffect(0.8).padding(.leading, -4)
         } else {
             return self
         }

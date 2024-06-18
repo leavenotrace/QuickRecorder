@@ -23,16 +23,69 @@ struct DashWindow: View {
     }
 }
 
+struct resizeView: View {
+    private enum Field: Int, Hashable { case width, height }
+    @FocusState private var focusedField: Field?
+    
+    @AppStorage("areaWidth")  private var areaWidth: Int = 600
+    @AppStorage("areaHeight") private var areaHeight: Int = 450
+    @AppStorage("highRes")    private var highRes: Int = 2
+    
+    var appDelegate = AppDelegate.shared
+    var screen: SCDisplay!
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 4) {
+                Text("Area Size:")
+                TextField("", value: $areaWidth, formatter: NumberFormatter())
+                    .frame(width: 60)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .width)
+                    .onChange(of: areaWidth) { newValue in
+                        if !appDelegate.isResizing {
+                            areaWidth = min(max(newValue, 1), screen.width)
+                            resize()
+                        }
+                    }
+                Image(systemName: "xmark").font(.system(size: 10, weight: .medium))
+                TextField("", value: $areaHeight, formatter: NumberFormatter())
+                    .frame(width: 60)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .height)
+                    .onChange(of: areaHeight) { newValue in
+                        if !appDelegate.isResizing {
+                            areaHeight = min(max(newValue, 1), screen.height)
+                            resize()
+                        }
+                    }
+            }
+            HStack(spacing: 4) {
+                Text("Output Size:")
+                let scale = Int(screen.nsScreen!.backingScaleFactor)
+                Text(" \(highRes == 2 ? areaWidth * scale : areaWidth) x \(highRes == 2 ? areaHeight * scale : areaHeight)")
+                Spacer()
+            }
+        }.onAppear{ focusedField = .width }
+    }
+    
+    func resize() {
+        appDelegate.closeAllWindow(except: "Start Recording".local)
+        AppDelegate.shared.showAreaSelector(size: NSSize(width: areaWidth, height: areaHeight), noPanel: true)
+    }
+}
+
 struct AreaSelector: View {
-    @Environment(\.colorScheme) var colorScheme
-    //@NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var timer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
-    @State private var start = Date.now
-    @State private var counter: Int?
+    //private enum Field: Int, Hashable { case width, height }
+    //@FocusState private var focusedField: Field?
+    //@Environment(\.colorScheme) var colorScheme
     @State private var isPopoverShowing = false
+    @State private var resizePopoverShowing = false
     @State private var autoStop = 0
+    
     var screen: SCDisplay!
     var appDelegate = AppDelegate.shared
+    //let savedArea = ud.object(forKey: "savedArea") as! [String: [String: CGFloat]]
     
     @AppStorage("frameRate")       private var frameRate: Int = 60
     @AppStorage("videoQuality")    private var videoQuality: Double = 1.0
@@ -42,181 +95,224 @@ struct AreaSelector: View {
     @AppStorage("recordMic")       private var recordMic: Bool = false
     @AppStorage("recordWinSound")  private var recordWinSound: Bool = true
     @AppStorage("background")      private var background: BackgroundType = .wallpaper
-    //@AppStorage("removeWallpaper") private var removeWallpaper: Bool = false
     @AppStorage("highRes")         private var highRes: Int = 2
-    @AppStorage("countdown")       private var countdown: Int = 0
+    @AppStorage("recordHDR")       private var recordHDR: Bool = false
     
     var body: some View {
-        ZStack{
+        ZStack {
             Color(nsColor: NSColor.windowBackgroundColor)
                 .cornerRadius(10)
-            HStack(spacing: 4) {
-                Spacer()
-                Button(action: {
-                    for w in NSApplication.shared.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
-                    appDelegate.stopGlobalMouseMonitor()
-                }, label: {
-                    VStack{
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.secondary)
-                        Text("Cancel")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 12))
-                    }
-                    
-                }).buttonStyle(.plain)
-                Spacer()
-                VStack(spacing: 6) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Resolution")
-                            Text("Frame rate")
-                        }
-                        VStack(alignment: .leading, spacing: 10) {
-                            Picker("", selection: $highRes) {
-                                Text("High (auto)").tag(2)
-                                Text("Normal (1x)").tag(1)
-                                Text("Low (0.5x)").tag(0)
-                            }.buttonStyle(.borderless)
-                            Picker("", selection: $frameRate) {
-                                Text("240 FPS").tag(240)
-                                Text("144 FPS").tag(144)
-                                Text("120 FPS").tag(120)
-                                Text("90 FPS").tag(90)
-                                Text("60 FPS").tag(60)
-                                Text("30 FPS").tag(30)
-                                Text("24 FPS").tag(24)
-                                Text("15 FPS").tag(15)
-                                Text("10 FPS").tag(10)
-                            }.buttonStyle(.borderless)
-                        }.scaledToFit()
-                        Divider().frame(height: 50)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Quality")
-                            Text("Background")
-                        }.padding(.leading, isMacOS12 ? 0 : 8)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Picker("", selection: $videoQuality) {
-                                Text("Low").tag(0.3)
-                                Text("Medium").tag(0.7)
-                                Text("High").tag(1.0)
-                            }.buttonStyle(.borderless)
-                            Picker("", selection: $background) {
-                                Text("Wallpaper").tag(BackgroundType.wallpaper)
-                                if ud.bool(forKey: "withAlpha") { Text("Transparent").tag(BackgroundType.clear) }
-                                Text("Black").tag(BackgroundType.black)
-                                Text("White").tag(BackgroundType.white)
-                                Text("Gray").tag(BackgroundType.gray)
-                                Text("Yellow").tag(BackgroundType.yellow)
-                                Text("Orange").tag(BackgroundType.orange)
-                                Text("Green").tag(BackgroundType.green)
-                                Text("Blue").tag(BackgroundType.blue)
-                                Text("Red").tag(BackgroundType.red)
-                                Text("Custom").tag(BackgroundType.custom)
-                            }.buttonStyle(.borderless)
-                        }.scaledToFit()
-                        Divider().frame(height: 50)
-                        VStack(alignment: .leading, spacing: isMacOS12 ? 10 : 2) {
-                            Toggle(isOn: $showMouse) { Text("Record Cursor").padding(.leading, 5) }
-                                .toggleStyle(.checkbox)
-                            if #available(macOS 13, *) {
-                                Toggle(isOn: $recordWinSound) { Text("App's Audio").padding(.leading, 5) }
-                                    .toggleStyle(.checkbox)
-                            }
-                            if #available(macOS 14, *) { // apparently they changed onChange in Sonoma
-                                Toggle(isOn: $recordMic) {
-                                    Text("Microphone").padding(.leading, 5)
-                                }.toggleStyle(.checkbox).onChange(of: recordMic) {
-                                    Task { await SCContext.performMicCheck() }
-                                }
-                            } else {
-                                Toggle(isOn: $recordMic) {
-                                    Text("Microphone").padding(.leading, 5)
-                                }.toggleStyle(.checkbox).onChange(of: recordMic) { _ in
-                                    Task { await SCContext.performMicCheck() }
-                                }
-                            }
-                        }.needScale()
-                    }
-                }.padding(.leading, 18)
-                Spacer()
-                Button(action: {
-                    isPopoverShowing = true
-                }, label: {
-                    Image(systemName: "timer")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.blue)
-                })
-                .disabled(!(counter == nil))
-                .buttonStyle(.plain)
-                .padding(.top, 42.5)
-                .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom, content: {
-                    HStack {
-                        Text(" Stop after".local)
-                        TextField("", value: $autoStop, formatter: NumberFormatter())
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                        Stepper("", value: $autoStop)
-                            .padding(.leading, -10)
-                        Text("minutes ".local)
-                    }
-                    .fixedSize()
-                    .padding()
-                })
-                Button(action: {
-                    if counter == 0 { startRecording() }
-                    if counter != nil { counter = nil } else { counter = countdown; start = Date.now }
-                }, label: {
-                    VStack{
-                        Image(systemName: "record.circle.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.red)
-                        ZStack{
-                            Text("Start")
-                                .foregroundStyle((counter != nil && counter != 0) ? .clear : .secondary)
-                                .font(.system(size: 12))
-                            Text((counter != nil && counter != 0) ? "\(counter!)" : "")
+            VStack {
+                HStack(spacing: 4) {
+                    Spacer()
+                    Button(action: {
+                        resizePopoverShowing = true
+                    }, label: {
+                        VStack{
+                            Image(systemName: "viewfinder.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.blue)
+                            Text("Resize")
                                 .foregroundStyle(.secondary)
                                 .font(.system(size: 12))
-                                .offset(x: 1)
                         }
-                    }
-                })
-                .buttonStyle(.plain)
-                Spacer()
+                    })
+                    .buttonStyle(.plain)
+                    .sheet(isPresented: $resizePopoverShowing, content: {
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                resizePopoverShowing = false
+                            }, label: {
+                                VStack{
+                                    Image(systemName: "arrow.uturn.backward.circle.fill")
+                                        .font(.system(size: 30))
+                                        .foregroundStyle(.secondary)
+                                    Text("Back")
+                                        .foregroundStyle(.secondary)
+                                        .font(.system(size: 12))
+                                }
+                                
+                            }).buttonStyle(.plain)
+                            resizeView(screen: screen)
+                        }.padding()
+                    })
+                    Spacer()
+                    VStack(spacing: 6) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Resolution")
+                                Text("Frame Rate")
+                            }
+                            VStack(alignment: .leading, spacing: 10) {
+                                Picker("", selection: $highRes) {
+                                    Text("High (auto)").tag(2)
+                                    Text("Normal (1x)").tag(1)
+                                    //Text("Low (0.5x)").tag(0)
+                                }.buttonStyle(.borderless)
+                                Picker("", selection: $frameRate) {
+                                    Text("240 FPS").tag(240)
+                                    Text("144 FPS").tag(144)
+                                    Text("120 FPS").tag(120)
+                                    Text("90 FPS").tag(90)
+                                    Text("60 FPS").tag(60)
+                                    Text("30 FPS").tag(30)
+                                    Text("24 FPS").tag(24)
+                                    Text("15 FPS").tag(15)
+                                    Text("10 FPS").tag(10)
+                                }.buttonStyle(.borderless)
+                            }.scaledToFit()
+                            Divider().frame(height: 50)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Quality")
+                                Text("Background")
+                            }.padding(.leading, isMacOS12 ? 0 : 8)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Picker("", selection: $videoQuality) {
+                                    Text("Low").tag(0.3)
+                                    Text("Medium").tag(0.7)
+                                    Text("High").tag(1.0)
+                                }.buttonStyle(.borderless)
+                                Picker("", selection: $background) {
+                                    Text("Wallpaper").tag(BackgroundType.wallpaper)
+                                    if ud.bool(forKey: "withAlpha") { Text("Transparent").tag(BackgroundType.clear) }
+                                    Text("Black").tag(BackgroundType.black)
+                                    Text("White").tag(BackgroundType.white)
+                                    Text("Gray").tag(BackgroundType.gray)
+                                    Text("Yellow").tag(BackgroundType.yellow)
+                                    Text("Orange").tag(BackgroundType.orange)
+                                    Text("Green").tag(BackgroundType.green)
+                                    Text("Blue").tag(BackgroundType.blue)
+                                    Text("Red").tag(BackgroundType.red)
+                                    Text("Custom").tag(BackgroundType.custom)
+                                }.buttonStyle(.borderless)
+                            }.scaledToFit()
+                            Divider().frame(height: 50)
+                            VStack(alignment: .leading, spacing: isMacOS12 ? 10 : 2) {
+                                Toggle(isOn: $showMouse) {
+                                    HStack(spacing:0){
+                                        Image(systemName: "cursorarrow").frame(width: 20)
+                                        Text("Record Cursor")
+                                    }
+                                }.toggleStyle(.checkbox)
+                                if #available(macOS 13, *) {
+                                    Toggle(isOn: $recordWinSound) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "speaker.wave.1.fill").frame(width: 20)
+                                            Text("App's Audio")
+                                        }
+                                    }.toggleStyle(.checkbox)
+                                }
+                                if #available(macOS 14, *) { // apparently they changed onChange in Sonoma
+                                    Toggle(isOn: $recordMic) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "mic.fill").frame(width: 20)
+                                            Text("Microphone")
+                                        }
+                                    }
+                                    .toggleStyle(.checkbox)
+                                    .onChange(of: recordMic) {
+                                        Task { await SCContext.performMicCheck() }
+                                    }
+                                } else {
+                                    Toggle(isOn: $recordMic) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "mic.fill").frame(width: 20)
+                                            Text("Microphone")
+                                        }
+                                    }
+                                    .toggleStyle(.checkbox)
+                                    .onChange(of: recordMic) { _ in
+                                        Task { await SCContext.performMicCheck() }
+                                    }
+                                }
+                                if #available(macOS 15, *) {
+                                    Toggle(isOn: $recordHDR) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "sparkles.square.filled.on.square").frame(width: 20)
+                                            Text("Record HDR")
+                                        }
+                                    }.toggleStyle(.checkbox)
+                                }
+                            }.needScale()
+                        }
+                    }.padding(.leading, 18)
+                    Spacer()
+                    Button(action: {
+                        isPopoverShowing = true
+                    }, label: {
+                        Image(systemName: "timer")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.blue)
+                    })
+                    .buttonStyle(.plain)
+                    .padding(.top, 42.5)
+                    .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom, content: {
+                        HStack {
+                            Text(" Stop after".local)
+                            TextField("", value: $autoStop, formatter: NumberFormatter())
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                            Stepper("", value: $autoStop)
+                                .padding(.leading, -10)
+                            Text("minutes ".local)
+                        }
+                        .fixedSize()
+                        .padding()
+                    })
+                    Button(action: {
+                        startRecording()
+                    }, label: {
+                        VStack{
+                            Image(systemName: "record.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.red)
+                            Text("Start")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12))
+                        }
+                    }).buttonStyle(.plain)
+                    Spacer()
+                }
             }
-        }
-        .frame(width: 700, height: 80)
-        .onReceive(timer) { t in
-            if counter == nil { return }
-            if counter! <= 1 { counter = nil; startRecording(); return }
-            if t.timeIntervalSince1970 - start.timeIntervalSince1970 >= 1 { counter! -= 1; start = Date.now }
-        }
+            Button(action: {
+                for w in NSApplication.shared.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
+                appDelegate.stopGlobalMouseMonitor()
+            }, label: {
+                Image(systemName: "x.circle")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+            })
+            .buttonStyle(.plain)
+            .padding(.leading, -354).padding(.top, -39)
+        }.frame(width: 720, height: 90)
     }
+    
     func startRecording() {
-        //for w in NSApplication.shared.windows.filter({ $0.title == "Area Selector".local || $0.title == "Start Recording".local}) { w.close() }
         appDelegate.closeAllWindow()
         appDelegate.stopGlobalMouseMonitor()
-        var window = NSWindow()
-        let contentView = NSHostingView(rootView: AreaSelector())
-        let area = SCContext.screenArea!
-        guard let nsScreen = screen.nsScreen else { return }
-        contentView.frame = NSRect(x: Int(area.origin.x + nsScreen.frame.minX - 5), y: Int(area.origin.y + nsScreen.frame.minY - 5), width: Int(area.width + 10), height: Int(area.height + 10))
-        window = NSWindow(contentRect: contentView.frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
-        window.hasShadow = false
-        window.level = .screenSaver
-        window.ignoresMouseEvents = true
-        window.isReleasedWhenClosed = false
-        window.title = "Area Overlayer".local
-        window.backgroundColor = NSColor.clear
-        window.contentView = NSHostingView(rootView: DashWindow())
-        window.orderFront(self)
-        SCContext.autoStop = autoStop
-        appDelegate.prepRecord(type: "area", screens: screen, windows: nil, applications: nil)
+        appDelegate.createCountdownPanel(screen: screen) {
+            var window = NSWindow()
+            let area = SCContext.screenArea!
+            guard let nsScreen = screen.nsScreen else { return }
+            let frame = NSRect(x: Int(area.origin.x + nsScreen.frame.minX - 5), y: Int(area.origin.y + nsScreen.frame.minY - 5), width: Int(area.width + 10), height: Int(area.height + 10))
+            window = NSWindow(contentRect: frame, styleMask: [.fullSizeContentView], backing: .buffered, defer: false)
+            window.hasShadow = false
+            window.level = .screenSaver
+            window.ignoresMouseEvents = true
+            window.isReleasedWhenClosed = false
+            window.title = "Area Overlayer".local
+            window.backgroundColor = NSColor.clear
+            window.contentView = NSHostingView(rootView: DashWindow())
+            window.orderFront(self)
+            SCContext.autoStop = autoStop
+            appDelegate.prepRecord(type: "area", screens: screen, windows: nil, applications: nil)
+        }
     }
 }
 
 class ScreenshotOverlayView: NSView {
+    @AppStorage("areaWidth") private var areaWidth: Int = 600
+    @AppStorage("areaHeight") private var areaHeight: Int = 450
+    
     var selectionRect: NSRect?
     var initialLocation: NSPoint?
     var maskLayer: CALayer?
@@ -224,14 +320,36 @@ class ScreenshotOverlayView: NSView {
     var activeHandle: ResizeHandle = .none
     var lastMouseLocation: NSPoint?
     var maxFrame: NSRect?
+    var size: NSSize
+    var force: Bool
 
     let controlPointSize: CGFloat = 10.0
     let controlPointColor: NSColor = NSColor.systemYellow
     
+    init(frame: CGRect, size: NSSize, force: Bool) {
+        self.size = size
+        self.force = force
+        super.init(frame: frame)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        selectionRect = NSRect(x: (self.frame.width - 600) / 2, y: (self.frame.height - 450) / 2 + 70, width: 600, height: 450)
-        if self.window != nil { SCContext.screenArea = selectionRect }
+        selectionRect = NSRect(x: (self.frame.width - size.width) / 2, y: (self.frame.height - size.height) / 2, width: size.width, height:size.height)
+        if !force {
+            let savedArea = ud.object(forKey: "savedArea") as! [String: [String: CGFloat]]
+            if let name = self.window?.screen?.localizedName { if let area = savedArea[name] {
+                selectionRect = NSRect(x: area["x"]!, y: area["y"]!, width: area["width"]!, height: area["height"]!)
+            }}
+        }
+        if self.window != nil {
+            areaWidth = Int(selectionRect!.width)
+            areaHeight = Int(selectionRect!.height)
+            SCContext.screenArea = selectionRect
+        }
     }
     
     override func draw(_ dirtyRect: NSRect) {
@@ -304,6 +422,7 @@ class ScreenshotOverlayView: NSView {
         activeHandle = handleForPoint(location)
         if let rect = selectionRect, NSPointInRect(location, rect) { dragIng = true }
         needsDisplay = true
+        AppDelegate.shared.isResizing = true
     }
     
     override func mouseDragged(with event: NSEvent) {
@@ -353,6 +472,8 @@ class ScreenshotOverlayView: NSView {
             self.selectionRect = newRect
             initialLocation = currentLocation // Update initial location for continuous dragging
             lastMouseLocation = currentLocation // Update last mouse location
+            areaWidth = Int(selectionRect!.width)
+            areaHeight = Int(selectionRect!.height)
         } else {
             if dragIng {
                 dragIng = true
@@ -379,6 +500,8 @@ class ScreenshotOverlayView: NSView {
                 if currentLocation.x < maxFrame.origin.x { maxW = initialLocation.x }
                 let size = NSSize(width: maxW, height: maxH)
                 self.selectionRect = NSIntersectionRect(maxFrame, NSRect(origin: origin, size: size))
+                areaWidth = Int(selectionRect!.width)
+                areaHeight = Int(selectionRect!.height)
                 //initialLocation = currentLocation
             }
             self.initialLocation = initialLocation
@@ -391,6 +514,7 @@ class ScreenshotOverlayView: NSView {
         initialLocation = nil
         activeHandle = .none
         dragIng = false
+        AppDelegate.shared.isResizing = false
         if let rect = selectionRect {
             SCContext.screenArea = rect
             //let rectArray = [Int(rect.origin.x), Int(rect.origin.y), Int(rect.size.width), Int(rect.size.height)]
@@ -400,10 +524,9 @@ class ScreenshotOverlayView: NSView {
 }
 
 class ScreenshotWindow: NSWindow {
-    let overlayView = ScreenshotOverlayView()
     
-    
-    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing bufferingType: NSWindow.BackingStoreType, defer flag: Bool) {
+    init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing bufferingType: NSWindow.BackingStoreType, defer flag: Bool, size: NSSize, force: Bool = false) {
+        let overlayView = ScreenshotOverlayView(frame: contentRect, size:size, force: force)
         super.init(contentRect: contentRect, styleMask: style, backing: bufferingType, defer: flag)
         self.isOpaque = false
         self.level = .statusBar
@@ -413,7 +536,10 @@ class ScreenshotWindow: NSWindow {
         self.contentView = overlayView
         if let monitor = keyMonitor { NSEvent.removeMonitor(monitor) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: NSEvent.EventTypeMask.keyDown, handler: myKeyDownEvent)
-        
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     func myKeyDownEvent(event: NSEvent) -> NSEvent? {

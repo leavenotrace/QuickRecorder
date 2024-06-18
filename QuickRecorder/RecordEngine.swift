@@ -42,11 +42,11 @@ extension AppDelegate {
         let dockApp = SCContext.availableContent!.applications.first(where: { $0.bundleIdentifier.description == "com.apple.dock" })
         let wallpaper = SCContext.availableContent!.windows.filter({
             guard let title = $0.title else { return false }
-            return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && title.contains("Wallpaper-")
+            return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && title != "LPSpringboard" && title != "Dock"
         })
         let dockWindow = SCContext.availableContent!.windows.filter({
             guard let title = $0.title else { return true }
-            return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && !title.contains("Wallpaper-")
+            return $0.owningApplication?.bundleIdentifier == "com.apple.dock" && title == "Dock"
         })
         let desktopFiles = SCContext.availableContent!.windows.filter({ $0.title == "" && $0.owningApplication?.bundleIdentifier == "com.apple.finder" })
         let mouseWindow = SCContext.availableContent!.windows.filter({ $0.title == "Mouse Pointer".local && $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier })
@@ -72,13 +72,20 @@ extension AppDelegate {
             }
         } else {
             if SCContext.streamType == .screen || SCContext.streamType == .screenarea || SCContext.streamType == .systemaudio {
+                let screen = SCContext.screen ?? SCContext.getSCDisplayWithMouse()!
+                if SCContext.streamType == .screenarea {
+                    if let area = SCContext.screenArea, let name = screen.nsScreen?.localizedName {
+                        let a = ["x": area.origin.x, "y": area.origin.y, "width": area.width, "height": area.height]
+                        ud.set([name: a], forKey: "savedArea")
+                    }
+                }
                 var excluded = [SCRunningApplication]()
                 var except = [SCWindow]()
                 excluded += excliudedApps
                 if ud.bool(forKey: "hideSelf") { if let qrWindows = qrWindows { except += qrWindows }}
                 if ud.string(forKey: "background") != BackgroundType.wallpaper.rawValue { if dockApp != nil { except += wallpaper}}
                 if ud.bool(forKey: "hideDesktopFiles") { except += desktopFiles }
-                SCContext.filter = SCContentFilter(display: SCContext.screen ?? SCContext.getSCDisplayWithMouse()!, excludingApplications: excluded, exceptingWindows: except)
+                SCContext.filter = SCContentFilter(display: screen, excludingApplications: excluded, exceptingWindows: except)
                 if #available(macOS 14.2, *) { SCContext.filter?.includeMenuBar = ((SCContext.streamType == .screen || SCContext.streamType == .screenarea) && ud.bool(forKey: "includeMenuBar")) }
             }
             if SCContext.streamType == .application {
@@ -103,7 +110,12 @@ extension AppDelegate {
         SCContext.isPaused = false
         SCContext.isResume = false
         
-        let conf = SCStreamConfiguration()
+        let conf: SCStreamConfiguration
+        if ud.bool(forKey: "recordHDR") {
+            if #available(macOS 15, *) {
+                conf = SCStreamConfiguration(preset: .captureHDRStreamLocalDisplay)
+            } else { conf = SCStreamConfiguration() }
+        } else { conf = SCStreamConfiguration() }
         conf.width = 2
         conf.height = 2
         
@@ -131,14 +143,14 @@ extension AppDelegate {
                 conf.width = conf.width * (ud.integer(forKey: "highRes") == 2 ? Int(pointPixelScaleOld) : 1)
                 conf.height = conf.height * (ud.integer(forKey: "highRes") == 2 ? Int(pointPixelScaleOld) : 1)
             }
-            if ud.integer(forKey: "highRes") == 0 {
+            /*if ud.integer(forKey: "highRes") == 0 {
                 conf.width = Int(conf.width/2)
                 conf.height = Int(conf.height/2)
-            }
+            }*/
             conf.showsCursor = ud.bool(forKey: "showMouse") || fastStart
             if ud.string(forKey: "background") != BackgroundType.wallpaper.rawValue { conf.backgroundColor = SCContext.getBackgroundColor() }
-            if let colorSpace = SCContext.getColorSpace() { conf.colorSpaceName = colorSpace }
-            if ud.bool(forKey: "withAlpha") { conf.pixelFormat = kCVPixelFormatType_32BGRA }
+            if let colorSpace = SCContext.getColorSpace(), !ud.bool(forKey: "recordHDR") { conf.colorSpaceName = colorSpace }
+            if ud.bool(forKey: "withAlpha") && !ud.bool(forKey: "recordHDR") { conf.pixelFormat = kCVPixelFormatType_32BGRA }
         }
         
         if #available(macOS 13, *) {
@@ -161,10 +173,10 @@ extension AppDelegate {
                     conf.width = Int(conf.sourceRect.width) * (ud.integer(forKey: "highRes") == 2 ? Int(pointPixelScaleOld) : 1)
                     conf.height = Int(conf.sourceRect.height) * (ud.integer(forKey: "highRes") == 2 ? Int(pointPixelScaleOld) : 1)
                 }
-                if ud.integer(forKey: "highRes") == 0 {
+                /*if ud.integer(forKey: "highRes") == 0 {
                     conf.width = Int(conf.width/2)
                     conf.height = Int(conf.height/2)
-                }
+                }*/
             }
         }
         
@@ -232,7 +244,7 @@ extension AppDelegate {
         let encoderMultiplier: Double = encoderIsH265 ? 0.5 : 0.9
         let targetBitrate = (Double(conf.width) * Double(conf.height) * fpsMultiplier * encoderMultiplier * ud.double(forKey: "videoQuality"))
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: encoderIsH265 ? (ud.bool(forKey: "withAlpha") ? AVVideoCodecType.hevcWithAlpha : AVVideoCodecType.hevc) : AVVideoCodecType.h264,
+            AVVideoCodecKey: encoderIsH265 ? ((ud.bool(forKey: "withAlpha") && !ud.bool(forKey: "recordHDR")) ? AVVideoCodecType.hevcWithAlpha : AVVideoCodecType.hevc) : AVVideoCodecType.h264,
             // yes, not ideal if we want more than these encoders in the future, but it's ok for now
             AVVideoWidthKey: conf.width,
             AVVideoHeightKey: conf.height,
@@ -264,7 +276,7 @@ extension AppDelegate {
             let input = SCContext.audioEngine.inputNode
             if ud.bool(forKey: "enableAEC") {
                 try? input.setVoiceProcessingEnabled(true)
-                input.voiceProcessingOtherAudioDuckingConfiguration.duckingLevel = .min
+                if #available(macOS 14, *) { input.voiceProcessingOtherAudioDuckingConfiguration.duckingLevel = .min }
             }
             input.installTap(onBus: 0, bufferSize: 1024, format: input.inputFormat(forBus: 0)) {buffer, time in
                 if SCContext.micInput.isReadyForMoreMediaData && SCContext.startTime != nil {
@@ -338,6 +350,7 @@ extension AppDelegate {
             var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
             let dur = CMSampleBufferGetDuration(SampleBuffer)
             if (dur.value > 0) { pts = CMTimeAdd(pts, dur) }
+            if let lastPTS = SCContext.lastPTS { if !(pts > lastPTS) { return } }
             SCContext.lastPTS = pts
             if SCContext.vwInput.isReadyForMoreMediaData {
                 if #available(macOS 14.2, *) {
@@ -372,9 +385,12 @@ extension AppDelegate {
                 var pts = CMSampleBufferGetPresentationTimeStamp(SampleBuffer)
                 let dur = CMSampleBufferGetDuration(SampleBuffer)
                 if (dur.value > 0) { pts = CMTimeAdd(pts, dur) }
+                if let lastPTS = SCContext.lastPTS { if !(pts > lastPTS) { return } }
                 SCContext.lastPTS = pts
                 if SCContext.awInput.isReadyForMoreMediaData { SCContext.awInput.append(SampleBuffer) }
             }
+        case .microphone:
+            break
         @unknown default:
             assertionFailure("unknown stream type".local)
         }

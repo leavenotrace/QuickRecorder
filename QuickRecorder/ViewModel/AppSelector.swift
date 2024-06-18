@@ -11,13 +11,9 @@ import ScreenCaptureKit
 
 struct AppSelector: View {
     @StateObject var viewModel = AppSelectorViewModel()
-    //@NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var selected = [SCRunningApplication]()
     @State private var display: SCDisplay!
     @State private var selectedTab = 0
-    @State private var timer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
-    @State private var start = Date.now
-    @State private var counter: Int?
     @State private var isPopoverShowing = false
     @State private var autoStop = 0
     var appDelegate = AppDelegate.shared
@@ -31,12 +27,16 @@ struct AppSelector: View {
     @AppStorage("recordWinSound") private var recordWinSound: Bool = true
     @AppStorage("background")     private var background: BackgroundType = .wallpaper
     @AppStorage("highRes")        private var highRes: Int = 2
-    @AppStorage("countdown")      private var countdown: Int = 0
+    @AppStorage("recordHDR")       private var recordHDR: Bool = false
     
     var body: some View {
         ZStack {
             VStack(spacing: 15) {
-                Text("Please select the App(s) to record")
+                if #available(macOS 15, *) {
+                    Text("Please select the App(s) to record").offset(y: 8)
+                } else {
+                    Text("Please select the App(s) to record")
+                }
                 TabView(selection: $selectedTab) {
                     let allApps = viewModel.allApps.sorted(by: { $0.key.displayID < $1.key.displayID })
                     ForEach(allApps, id: \.key) { element in
@@ -49,18 +49,19 @@ struct AppSelector: View {
                                         ForEach(0..<5, id: \.self) { columnIndex in
                                             let index = 5 * rowIndex + columnIndex
                                             if index <= apps.count - 1 {
+                                                let item = apps[index]
                                                 Button(action: {
-                                                    if !selected.contains(apps[index]) {
-                                                        selected.append(apps[index])
+                                                    if !selected.contains(item) {
+                                                        selected.append(item)
                                                     } else {
-                                                        selected.removeAll{ $0 == apps[index] }
+                                                        selected.removeAll{ $0 == item }
                                                     }
                                                 }, label: {
                                                     ZStack {
                                                         VStack {
-                                                            Image(nsImage: SCContext.getAppIcon(apps[index])!)
-                                                            let appName = apps[index].applicationName
-                                                            let appID = apps[index].bundleIdentifier
+                                                            Image(nsImage: SCContext.getAppIcon(item)!)
+                                                            let appName = item.applicationName
+                                                            let appID = item.bundleIdentifier
                                                             Text(appName != "" ? appName : appID)
                                                                 .foregroundStyle(.secondary)
                                                                 .lineLimit(1)
@@ -72,17 +73,17 @@ struct AppSelector: View {
                                                             Rectangle()
                                                                 .foregroundStyle(.blue)
                                                                 .cornerRadius(5)
-                                                                .opacity(selected.contains(apps[index]) ? 0.2 : 0.0)
+                                                                .opacity(selected.contains(item) ? 0.2 : 0.0)
                                                         )
                                                         Image(systemName: "circle.fill")
                                                             .font(.system(size: 31))
                                                             .foregroundStyle(.white)
-                                                            .opacity(selected.contains(apps[index]) ? 1.0 : 0.0)
+                                                            .opacity(selected.contains(item) ? 1.0 : 0.0)
                                                             .offset(x: 20, y: 10)
                                                         Image(systemName: "checkmark.circle.fill")
                                                             .font(.system(size: 27))
                                                             .foregroundStyle(.green)
-                                                            .opacity(selected.contains(apps[index]) ? 1.0 : 0.0)
+                                                            .opacity(selected.contains(item) ? 1.0 : 0.0)
                                                             .offset(x: 20, y: 10)
                                                     }
                                                 }).buttonStyle(.plain)
@@ -130,13 +131,13 @@ struct AppSelector: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("Resolution")
-                                Text("Frame rate")
+                                Text("Frame Rate")
                             }
                             VStack(alignment: .leading, spacing: 10) {
                                 Picker("", selection: $highRes) {
                                     Text("High (auto)").tag(2)
                                     Text("Normal (1x)").tag(1)
-                                    Text("Low (0.5x)").tag(0)
+                                    //Text("Low (0.5x)").tag(0)
                                 }.buttonStyle(.borderless)
                                 Picker("", selection: $frameRate) {
                                     Text("240 FPS").tag(240)
@@ -177,24 +178,50 @@ struct AppSelector: View {
                             }.scaledToFit()
                             Divider().frame(height: 50)
                             VStack(alignment: .leading, spacing: isMacOS12 ? 10 : 2) {
-                                Toggle(isOn: $showMouse) { Text("Record Cursor").padding(.leading, 5) }
-                                    .toggleStyle(.checkbox)
+                                Toggle(isOn: $showMouse) {
+                                    HStack(spacing:0){
+                                        Image(systemName: "cursorarrow").frame(width: 20)
+                                        Text("Record Cursor")
+                                    }
+                                }.toggleStyle(.checkbox)
                                 if #available(macOS 13, *) {
-                                    Toggle(isOn: $recordWinSound) { Text("App's Audio").padding(.leading, 5) }
-                                        .toggleStyle(.checkbox)
+                                    Toggle(isOn: $recordWinSound) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "speaker.wave.1.fill").frame(width: 20)
+                                            Text("App's Audio")
+                                        }
+                                    }.toggleStyle(.checkbox)
                                 }
                                 if #available(macOS 14, *) { // apparently they changed onChange in Sonoma
                                     Toggle(isOn: $recordMic) {
-                                        Text("Microphone").padding(.leading, 5)
-                                    }.toggleStyle(.checkbox).onChange(of: recordMic) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "mic.fill").frame(width: 20)
+                                            Text("Microphone")
+                                        }
+                                    }
+                                    .toggleStyle(.checkbox)
+                                    .onChange(of: recordMic) {
                                         Task { await SCContext.performMicCheck() }
                                     }
                                 } else {
                                     Toggle(isOn: $recordMic) {
-                                        Text("Microphone").padding(.leading, 5)
-                                    }.toggleStyle(.checkbox).onChange(of: recordMic) { _ in
+                                        HStack(spacing:0){
+                                            Image(systemName: "mic.fill").frame(width: 20)
+                                            Text("Microphone")
+                                        }
+                                    }
+                                    .toggleStyle(.checkbox)
+                                    .onChange(of: recordMic) { _ in
                                         Task { await SCContext.performMicCheck() }
                                     }
+                                }
+                                if #available(macOS 15, *) {
+                                    Toggle(isOn: $recordHDR) {
+                                        HStack(spacing:0){
+                                            Image(systemName: "sparkles.square.filled.on.square").frame(width: 20)
+                                            Text("Record HDR")
+                                        }
+                                    }.toggleStyle(.checkbox)
                                 }
                             }.needScale()
                         }
@@ -207,7 +234,6 @@ struct AppSelector: View {
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.blue)
                     })
-                    .disabled(!(counter == nil))
                     .buttonStyle(.plain)
                     .padding(.top, 42.5)
                     .popover(isPresented: $isPopoverShowing, arrowEdge: .bottom, content: {
@@ -223,44 +249,31 @@ struct AppSelector: View {
                         .padding()
                     })
                     Button(action: {
-                        if counter == 0 { startRecording() }
-                        if counter != nil { counter = nil } else { counter = countdown; start = Date.now }
+                        startRecording()
                     }, label: {
                         VStack{
                             Image(systemName: "record.circle.fill")
                                 .font(.system(size: 36))
                                 .foregroundStyle(.red)
-                            ZStack{
-                                Text("Start")
-                                    .foregroundStyle((counter != nil && counter != 0) ? .clear : .secondary)
-                                    .font(.system(size: 12))
-                                Text((counter != nil && counter != 0) ? "\(counter!)" : "")
-                                    .foregroundStyle(.secondary)
-                                    .font(.system(size: 12))
-                                    .offset(x: 1)
-                            }
+                            Text("Start")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12))
                         }
                     })
                     .buttonStyle(.plain)
                     .disabled(selected.count < 1)
-                }.padding([.leading, .trailing], 50)
+                }.padding([.leading, .trailing], 40)
                 Spacer()
-            }
-            .padding(.top, -5)
-        }
-        .frame(width: 780, height:555)
-        .onReceive(timer) { t in
-            if counter == nil { return }
-            if counter! <= 1 { counter = nil; startRecording(); return }
-            if t.timeIntervalSince1970 - start.timeIntervalSince1970 >= 1 { counter! -= 1; start = Date.now }
-        }
+            }.padding(.top, -5)
+        }.frame(width: 780, height:555)
     }
     
     func startRecording() {
-        //if let w = NSApplication.shared.windows.first(where: { $0.title == "App Selector" }) { w.close() }
         appDelegate.closeAllWindow()
-        SCContext.autoStop = autoStop
-        appDelegate.prepRecord(type: "application", screens: display, windows: nil, applications: selected)
+        appDelegate.createCountdownPanel(screen: display) {
+            SCContext.autoStop = autoStop
+            appDelegate.prepRecord(type: "application", screens: display, windows: nil, applications: selected)
+        }
     }
 }
 
